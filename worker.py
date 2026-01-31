@@ -5,7 +5,7 @@ import argparse
 import time
 from crawl4ai import AsyncWebCrawler
 from config import Config
-from queues import UrlQueue, UrlItem
+from queues import UrlQueue, UrlItem, ExtractEntitiesQueue, ExtractEntitiesItem
 from document_db import DocumentDB, DocumentItem
 from logger import get_logger, setup_logging
 from entity_extractor import EntityExtractor
@@ -13,38 +13,33 @@ from entity_extractor import EntityExtractor
 logger = get_logger(__name__)
 
 class WorkerBase:
-    def __init__(self, name: str, config: Config, check_period_seconds: int):
+    def __init__(self, name: str, config: Config, check_period_seconds: int, shutdown_event: asyncio.Event):
         self.name = name
         self.config = config
-        self.running = True
         self.document_db = DocumentDB(config)
         self.check_period_seconds = check_period_seconds
-        
-        # Setup signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self.handle_exit)
-        signal.signal(signal.SIGTERM, self.handle_exit)
-
-    def handle_exit(self, signum, frame):
-        logger.info(f"Received signal {signum}. Shutting down gracefully...")
-        self.running = False
+        self.shutdown_event = shutdown_event
 
     async def loop(self) -> bool:
         raise NotImplementedError
 
     async def start(self):
-        logger.info(f"{self.name} started. Press Ctrl+C to stop.")
+        logger.info(f"{self.name} started.")
 
-        while self.running:
-            processed = await self.loop(); 
+        while not self.shutdown_event.is_set():
+            processed = await self.loop()
 
             if not processed:
-                await asyncio.sleep(self.check_period_seconds)
+                try:
+                    await asyncio.wait_for(self.shutdown_event.wait(), timeout=self.check_period_seconds)
+                except asyncio.TimeoutError:
+                    pass
 
         logger.info(f"{self.name} stopped.")
 
 class UrlWorker(WorkerBase):
-    def __init__(self, config: Config):
-        super().__init__("URL Worker", config, config.crawl_check_period_seconds())
+    def __init__(self, config: Config, shutdown_event: asyncio.Event):
+        super().__init__("URL Worker", config, config.crawl_check_period_seconds(), shutdown_event)
         self.url_queue = UrlQueue(config)
 
     async def loop(self) -> bool:
@@ -77,8 +72,8 @@ class UrlWorker(WorkerBase):
             return False
         
 class EntityExtractorWorker(WorkerBase):
-    def __init__(self, config: Config):
-        super().__init__("Entity Extractor Worker", config, config.crawl_check_period_seconds())
+    def __init__(self, config: Config, shutdown_event: asyncio.Event):
+        super().__init__("Entity Extractor Worker", config, config.crawl_check_period_seconds(), shutdown_event)
         self.extract_entities_queue = ExtractEntitiesQueue(config)
         self.entity_extractor = EntityExtractor(config)
 
@@ -110,6 +105,28 @@ class EntityExtractorWorker(WorkerBase):
         else:
             return False
 
+async def async_main(config_path: str):
+    setup_logging()
+    config = Config(config_path)
+    shutdown_event = asyncio.Event()
+
+    def handle_exit(signum, frame):
+        logger.info(f"Received signal {signum}. Triggering shutdown...")
+        shutdown_event.set()
+
+    # Register signals
+    signal.signal(signal.SIGINT, handle_exit)
+    signal.signal(signal.SIGTERM, handle_exit)
+
+    url_worker = UrlWorker(config, shutdown_event)
+    entity_extractor_worker = EntityExtractorWorker(config, shutdown_event)
+    
+    logger.info("Starting workers concurrently. Press Ctrl+C to stop.")
+    await asyncio.gather(
+        url_worker.start(),
+        entity_extractor_worker.start()
+    )
+
 def main():
     parser = argparse.ArgumentParser(description="Knowledge Engine Worker")
     parser.add_argument(
@@ -120,14 +137,8 @@ def main():
     )
     args = parser.parse_args()
 
-    setup_logging()
-    config = Config(args.config)
-    url_worker = UrlWorker(config)
-    entity_extractor_worker = EntityExtractorWorker(config)
-    
     try:
-        asyncio.run(url_worker.start())
-        asyncio.run(entity_extractor_worker.start())
+        asyncio.run(async_main(args.config))
     except KeyboardInterrupt:
         pass
 
