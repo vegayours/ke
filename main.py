@@ -2,6 +2,7 @@ import argparse
 import time
 from config import Config
 from document_db import DocumentDB, DocumentItem
+from entity_extractor import EntityExtractor
 from url_queue import UrlQueue, UrlItem
 from logger import get_logger, setup_logging
 
@@ -38,6 +39,7 @@ def main():
     config = Config(args.config)
     url_queue = UrlQueue(config)
     document_db = DocumentDB(config)
+    entity_extractor = EntityExtractor(config)
 
     logger.info("Hello from knowledge engine!")
 
@@ -52,7 +54,8 @@ def main():
         while True:
             doc_item = document_db.get(args.document)
             if doc_item:
-                logger.info(f"Document: {doc_item}")
+                entities = entity_extractor.extract_entities(doc_item)
+                logger.info(f"Document: {doc_item.url}\nEntities: {entities}")
                 break
             else:
                 logger.info(f"Document {args.document} not found yet, will retry")

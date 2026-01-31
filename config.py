@@ -44,4 +44,7 @@ class Config:
 
     def crawl_check_period_seconds(self) -> int:
         return self.config.get("crawl_check_period_seconds", 10)
+
+    def entity_extractor_model(self) -> str:
+        return self.config.get("entity_extractor_model", "google/gemini-2.5-flash-lite")
     
