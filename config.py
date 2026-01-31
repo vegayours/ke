@@ -29,6 +29,13 @@ class Config:
             print("Error: OpenRouter API key not found in configuration.")
             sys.exit(1)
 
+        if not self.document_db_path():
+            print("Error: Document DB path not found in configuration.")
+            sys.exit(1)
+
     def openrouter_api_key(self) -> str:
         return self.config.get("openrouter_api_key")
+
+    def document_db_path(self) -> str:
+        return self.config.get("document_db_path")
     
