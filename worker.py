@@ -8,6 +8,7 @@ from config import Config
 from queues import UrlQueue, UrlItem
 from document_db import DocumentDB, DocumentItem
 from logger import get_logger, setup_logging
+from entity_extractor import EntityExtractor
 
 logger = get_logger(__name__)
 
@@ -75,6 +76,39 @@ class UrlWorker(WorkerBase):
         else:
             return False
         
+class EntityExtractorWorker(WorkerBase):
+    def __init__(self, config: Config):
+        super().__init__("Entity Extractor Worker", config, config.crawl_check_period_seconds())
+        self.extract_entities_queue = ExtractEntitiesQueue(config)
+        self.entity_extractor = EntityExtractor(config)
+
+    async def loop(self) -> bool:
+        extract_entities_item = self.extract_entities_queue.next()
+        
+        if extract_entities_item:
+            doc_item = self.document_db.get(extract_entities_item.url)
+
+            if not doc_item:
+                logger.error(f"Document {extract_entities_item.url} not found.")
+                return True
+
+            if not extract_entities_item.ignore_cache:
+                if doc_item.entities:
+                    logger.info(f"Document {extract_entities_item.url} already processed. Skipping.")
+                    return True
+
+            logger.info(f"Extracting entities from document: {extract_entities_item.url}")
+
+            try:
+                entities = self.entity_extractor.extract_entities(doc_item)
+                doc_item.entities = entities
+                self.document_db.update(doc_item)
+                logger.info(f"Successfully extracted entities from: {extract_entities_item.url}")
+            except Exception as e:
+                logger.error(f"Error extracting entities from {extract_entities_item.url}: {e}")
+            return True
+        else:
+            return False
 
 def main():
     parser = argparse.ArgumentParser(description="Knowledge Engine Worker")
@@ -89,9 +123,11 @@ def main():
     setup_logging()
     config = Config(args.config)
     url_worker = UrlWorker(config)
+    entity_extractor_worker = EntityExtractorWorker(config)
     
     try:
         asyncio.run(url_worker.start())
+        asyncio.run(entity_extractor_worker.start())
     except KeyboardInterrupt:
         pass
 

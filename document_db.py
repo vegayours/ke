@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class DocumentItem:
     url: str
     content: str
+    entities: dict | None = None
 
 class DocumentDB:
     def __init__(self, config: Config):
@@ -14,7 +15,9 @@ class DocumentDB:
         self.documents = Index(str(directory))
 
     def update(self, document: DocumentItem):
-        self.documents.update({document.url: document})
+        updated = self.get(document.url, {})
+        updated.update(document)
+        self.documents.update({document.url: updated})
 
     def get(self, url: str) -> DocumentItem | None:
         return self.documents.get(url)

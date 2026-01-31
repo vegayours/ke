@@ -28,3 +28,14 @@ class UrlItem:
 class UrlQueue(QueueBase[UrlItem]):
     def __init__(self, config: Config):
         super().__init__(config, "url_queue")
+
+
+@dataclass
+class ExtractEntitiesItem:
+    url: str
+    ignore_cache: bool = False
+
+class ExtractEntitiesQueue(QueueBase[ExtractEntitiesItem]):
+    def __init__(self, config: Config):
+        super().__init__(config, "extract_entities_queue")
+
