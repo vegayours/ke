@@ -2,6 +2,9 @@ from document_db import DocumentItem
 from config import Config
 from openrouter import OpenRouter
 import json
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 SYSTEM_PROMPT = """
 You are an expert Information Extraction AI. Your goal is to build a high-quality Knowledge Graph. 
@@ -44,7 +47,8 @@ class EntityExtractor:
                     {"role": "user", "content": f"Extract entities from the following document:\n{doc_item.content}"}
                 ]
             )
-            content = response.choices[0].message.content
+            content = str(response.choices[0].message.content)
+            content = content.removeprefix("```json").removesuffix('```')
 
             return json.loads(content)
             
