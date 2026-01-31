@@ -36,11 +36,18 @@ class Config:
             logger.error("Document DB path not found in configuration.")
             sys.exit(1)
 
+        if not self.graph_db_path():
+            logger.error("Graph DB path not found in configuration.")
+            sys.exit(1)
+
     def openrouter_api_key(self) -> str:
         return self.config.get("openrouter_api_key")
 
     def document_db_path(self) -> str:
         return self.config.get("document_db_path")
+
+    def graph_db_path(self) -> str:
+        return self.config.get("graph_db_path", "graph_db")
 
     def crawl_check_period_seconds(self) -> int:
         return self.config.get("crawl_check_period_seconds", 10)

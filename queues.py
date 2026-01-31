@@ -39,3 +39,12 @@ class ExtractEntitiesQueue(QueueBase[ExtractEntitiesItem]):
     def __init__(self, config: Config):
         super().__init__(config, "extract_entities_queue")
 
+
+@dataclass
+class UpdateGraphItem:
+    url: str
+
+class UpdateGraphQueue(QueueBase[UpdateGraphItem]):
+    def __init__(self, config: Config):
+        super().__init__(config, "update_graph_queue")
+

@@ -2,7 +2,6 @@ import argparse
 import time
 from config import Config
 from document_db import DocumentDB, DocumentItem
-from entity_extractor import EntityExtractor
 from queues import UrlQueue, UrlItem
 from logger import get_logger, setup_logging
 
