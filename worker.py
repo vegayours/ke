@@ -12,6 +12,7 @@ from entity_extractor import EntityExtractor
 from graph_db import GraphDB
 
 logger = get_logger(__name__)
+RETRY_DELAY_SECONDS = 10
 
 class WorkerBase:
     def __init__(self, name: str, config: Config, check_period_seconds: int, shutdown_event: asyncio.Event):
@@ -23,6 +24,11 @@ class WorkerBase:
 
     async def loop(self) -> bool:
         raise NotImplementedError
+
+    async def retry_after_delay(self, item, queue):
+        await asyncio.sleep(RETRY_DELAY_SECONDS)
+        queue.add(item)
+        logger.info(f"{self.name}: Item re-added to queue for retry.")
 
     async def start(self):
         logger.info(f"{self.name} started.")
@@ -70,8 +76,10 @@ class UrlWorker(WorkerBase):
                     logger.info(f"Successfully processed and stored: {url_item.url}")
                 else:
                     logger.error(f"Failed to crawl {url_item.url}: {result.error_message}")
+                    asyncio.create_task(self.retry_after_delay(url_item, self.url_queue))
             except Exception as e:
                 logger.error(f"Error processing {url_item.url}: {e}")
+                asyncio.create_task(self.retry_after_delay(url_item, self.url_queue))
             return True
         else:
             return False
@@ -108,6 +116,7 @@ class EntityExtractorWorker(WorkerBase):
                 logger.info(f"Successfully extracted entities from: {extract_entities_item.url}")
             except Exception as e:
                 logger.error(f"Error extracting entities from {extract_entities_item.url}: {e}")
+                asyncio.create_task(self.retry_after_delay(extract_entities_item, self.extract_entities_queue))
             return True
         else:
             return False
@@ -132,6 +141,7 @@ class GraphWorker(WorkerBase):
                 logger.info(f"Successfully updated graph for: {update_item.url}")
             except Exception as e:
                 logger.error(f"Error updating graph for {update_item.url}: {e}")
+                asyncio.create_task(self.retry_after_delay(update_item, self.update_graph_queue))
             return True
         else:
             return False
