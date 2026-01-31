@@ -41,6 +41,7 @@ class UrlWorker(WorkerBase):
     def __init__(self, config: Config, shutdown_event: asyncio.Event):
         super().__init__("URL Worker", config, config.crawl_check_period_seconds(), shutdown_event)
         self.url_queue = UrlQueue(config)
+        self.entity_extractor_queue = ExtractEntitiesQueue(config)
 
     async def loop(self) -> bool:
         url_item = self.url_queue.next()
@@ -50,6 +51,8 @@ class UrlWorker(WorkerBase):
                 doc_item = self.document_db.get(url_item.url)
                 if doc_item:
                     logger.info(f"URL {url_item.url} already processed. Skipping.")
+                    if not doc_item.entities:
+                        self.entity_extractor_queue.add(ExtractEntitiesItem(url=url_item.url))
                     return True
 
             logger.info(f"Processing URL: {url_item.url}")
@@ -62,6 +65,7 @@ class UrlWorker(WorkerBase):
                         content=str(result.markdown)
                     )
                     self.document_db.update(doc_item)
+                    self.entity_extractor_queue.add(ExtractEntitiesItem(url=url_item.url))
                     logger.info(f"Successfully processed and stored: {url_item.url}")
                 else:
                     logger.error(f"Failed to crawl {url_item.url}: {result.error_message}")

@@ -39,12 +39,11 @@ def main():
     config = Config(args.config)
     url_queue = UrlQueue(config)
     document_db = DocumentDB(config)
-    entity_extractor = EntityExtractor(config)
 
     logger.info("Hello from knowledge engine!")
 
     if args.url:
-        logger.info(f"Crawling {args.url}")
+        logger.info(f"Crawling and processing {args.url}")
         url_queue.add(UrlItem(url=args.url, ignore_cache=args.ignore_cache))
         args.document = args.url
 
@@ -53,12 +52,11 @@ def main():
         logger.info(f"Showing document {args.document}")
         while True:
             doc_item = document_db.get(args.document)
-            if doc_item:
-                entities = entity_extractor.extract_entities(doc_item)
-                logger.info(f"Document: {doc_item.url}\nEntities: {entities}")
+            if doc_item and doc_item.entities:
+                logger.info(f"Document: {doc_item.url}\nEntities: {doc_item.entities}")
                 break
             else:
-                logger.info(f"Document {args.document} not found yet, will retry")
+                logger.info(f"Document {args.document} not found or entities not extracted yet, will retry")
             time.sleep(POLL_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
