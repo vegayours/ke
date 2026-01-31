@@ -7,6 +7,9 @@ from crawl4ai import AsyncWebCrawler
 from config import Config
 from url_queue import UrlQueue, UrlItem
 from document_db import DocumentDB, DocumentItem
+from logger import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 class UrlWorker:
     def __init__(self, config: Config):
@@ -20,18 +23,18 @@ class UrlWorker:
         signal.signal(signal.SIGTERM, self.handle_exit)
 
     def handle_exit(self, signum, frame):
-        print(f"\nReceived signal {signum}. Shutting down gracefully...")
+        logger.info(f"Received signal {signum}. Shutting down gracefully...")
         self.running = False
 
     async def start(self):
-        print("URL Worker started. Press Ctrl+C to stop.")
+        logger.info("URL Worker started. Press Ctrl+C to stop.")
         
         async with AsyncWebCrawler() as crawler:
             while self.running:
                 url_item = self.url_queue.next()
                 
                 if url_item:
-                    print(f"Processing URL: {url_item.url}")
+                    logger.info(f"Processing URL: {url_item.url}")
                     try:
                         result = await crawler.arun(url=url_item.url)
                         if result.success:
@@ -40,16 +43,16 @@ class UrlWorker:
                                 content=result.markdown
                             )
                             self.document_db.update(doc_item)
-                            print(f"Successfully processed and stored: {url_item.url}")
+                            logger.info(f"Successfully processed and stored: {url_item.url}")
                         else:
-                            print(f"Failed to crawl {url_item.url}: {result.error_message}")
+                            logger.error(f"Failed to crawl {url_item.url}: {result.error_message}")
                     except Exception as e:
-                        print(f"Error processing {url_item.url}: {e}")
+                        logger.error(f"Error processing {url_item.url}: {e}")
                 else:
                     # No items in queue, sleep for a bit
                     await asyncio.sleep(1)
         
-        print("URL Worker stopped.")
+        logger.info("URL Worker stopped.")
 
 def main():
     parser = argparse.ArgumentParser(description="Knowledge Engine URL Worker")
@@ -61,6 +64,7 @@ def main():
     )
     args = parser.parse_args()
 
+    setup_logging()
     config = Config(args.config)
     worker = UrlWorker(config)
     
