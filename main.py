@@ -3,7 +3,7 @@ import time
 from config import Config
 from document_db import DocumentDB, DocumentItem
 from entity_extractor import EntityExtractor
-from url_queue import UrlQueue, UrlItem
+from queues import UrlQueue, UrlItem
 from logger import get_logger, setup_logging
 
 logger = get_logger(__name__)

@@ -5,7 +5,7 @@ import argparse
 import time
 from crawl4ai import AsyncWebCrawler
 from config import Config
-from url_queue import UrlQueue, UrlItem
+from queues import UrlQueue, UrlItem
 from document_db import DocumentDB, DocumentItem
 from logger import get_logger, setup_logging
 
