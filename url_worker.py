@@ -34,13 +34,19 @@ class UrlWorker:
                 url_item = self.url_queue.next()
                 
                 if url_item:
+                    if not url_item.ignore_cache:
+                        doc_item = self.document_db.get(url_item.url)
+                        if doc_item:
+                            logger.info(f"URL {url_item.url} already processed. Skipping.")
+                            continue
+
                     logger.info(f"Processing URL: {url_item.url}")
                     try:
                         result = await crawler.arun(url=url_item.url)
                         if result.success:
                             doc_item = DocumentItem(
                                 url=url_item.url,
-                                content=result.markdown
+                                content=str(result.markdown)
                             )
                             self.document_db.update(doc_item)
                             logger.info(f"Successfully processed and stored: {url_item.url}")
@@ -50,7 +56,7 @@ class UrlWorker:
                         logger.error(f"Error processing {url_item.url}: {e}")
                 else:
                     # No items in queue, sleep for a bit
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(self.config.crawl_check_period_seconds())
         
         logger.info("URL Worker stopped.")
 

@@ -41,4 +41,7 @@ class Config:
 
     def document_db_path(self) -> str:
         return self.config.get("document_db_path")
+
+    def crawl_check_period_seconds(self) -> int:
+        return self.config.get("crawl_check_period_seconds", 10)
     

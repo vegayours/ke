@@ -6,6 +6,7 @@ from pathlib import Path
 @dataclass
 class UrlItem:
     url: str
+    ignore_cache: bool = False 
     
 
 class UrlQueue:

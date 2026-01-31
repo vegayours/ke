@@ -1,10 +1,13 @@
 import argparse
+import time
 from config import Config
 from document_db import DocumentDB, DocumentItem
 from url_queue import UrlQueue, UrlItem
 from logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
+
+POLL_INTERVAL_SECONDS = 5
 
 def main():
     parser = argparse.ArgumentParser(description="Knowledge Engine")
@@ -13,6 +16,21 @@ def main():
         "-c",
         default="config.toml",
         help="Path to the config file (default: config.toml)",
+    )
+    parser.add_argument(
+        '--url', '-u',
+        help="URL to crawl"
+    )
+    parser.add_argument(
+        '--ignore-cache', '-i',
+        default=False,
+        action='store_true',
+        help="Crawl ignoring cache"
+    )
+
+    parser.add_argument(
+        '--document', '-d',
+        help="Document to show"
     )
     args = parser.parse_args()
 
@@ -23,18 +41,22 @@ def main():
 
     logger.info("Hello from knowledge engine!")
 
-    # Basic url queue test
-    logger.info("Basic url queue test")
-    url_queue.add(UrlItem(url="https://example.com"))
+    if args.url:
+        logger.info(f"Crawling {args.url}")
+        url_queue.add(UrlItem(url=args.url, ignore_cache=args.ignore_cache))
+        args.document = args.url
 
-    logger.info(url_queue.next())
-    logger.info(url_queue.next())
-
-    #Basic document db test
-    logger.info("Basic document db test")
-    document_db.update(DocumentItem(url="https://example.com", content="Hello world"))
-    logger.info(document_db.get("https://example.com"))
-    logger.info(document_db.get("https://example1.com"))
+    
+    if args.document:
+        logger.info(f"Showing document {args.document}")
+        while True:
+            doc_item = document_db.get(args.document)
+            if doc_item:
+                logger.info(f"Document: {doc_item}")
+                break
+            else:
+                logger.info(f"Document {args.document} not found yet, will retry")
+            time.sleep(POLL_INTERVAL_SECONDS)
 
 if __name__ == "__main__":
     main()
