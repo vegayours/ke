@@ -4,6 +4,7 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
+
 class GraphDB:
     def __init__(self, config: Config, read_only: bool = False):
         self.db = kuzu.Database(config.graph_db_path(), read_only=read_only)
@@ -13,14 +14,18 @@ class GraphDB:
 
     def _setup_schema(self):
         try:
-            self.conn.execute("CREATE NODE TABLE Entity(name STRING, label STRING, PRIMARY KEY (name))")
+            self.conn.execute(
+                "CREATE NODE TABLE Entity(name STRING, label STRING, PRIMARY KEY (name))"
+            )
             logger.info("Created NODE TABLE Entity")
         except Exception as e:
             if "already exists" not in str(e).lower():
                 logger.error(f"Error creating Entity table: {e}")
 
         try:
-            self.conn.execute("CREATE REL TABLE RelatedTo(FROM Entity TO Entity, relation STRING)")
+            self.conn.execute(
+                "CREATE REL TABLE RelatedTo(FROM Entity TO Entity, relation STRING)"
+            )
             logger.info("Created REL TABLE RelatedTo")
         except Exception as e:
             if "already exists" not in str(e).lower():
@@ -43,17 +48,17 @@ class GraphDB:
             label = node.get("label", "Unknown")
             if not node_id:
                 continue
-            
+
             try:
-                # Kuzu doesn't have a native UPSERT for nodes in all versions, 
-                # but we can try to MATCH and then CREATE if not exists, 
+                # Kuzu doesn't have a native UPSERT for nodes in all versions,
+                # but we can try to MATCH and then CREATE if not exists,
                 # or just try CREATE and ignore if exists.
-                # For simplicity, we'll use a MERGE-like approach if supported, 
+                # For simplicity, we'll use a MERGE-like approach if supported,
                 # or just use simple logic.
                 # In current Kuzu, we can use:
                 self.conn.execute(
                     "MERGE (e:Entity {name: $name}) ON CREATE SET e.label = $label ON MATCH SET e.label = $label",
-                    {"name": node_id, "label": label}
+                    {"name": node_id, "label": label},
                 )
             except Exception as e:
                 logger.error(f"Error upserting node {node_id}: {e}")
@@ -63,7 +68,7 @@ class GraphDB:
             source = edge.get("source")
             target = edge.get("target")
             relation = edge.get("relation", "RELATED_TO")
-            
+
             if not source or not target:
                 continue
 
@@ -72,7 +77,7 @@ class GraphDB:
                 self.conn.execute(
                     "MATCH (s:Entity {name: $source}), (t:Entity {name: $target}) "
                     "MERGE (s)-[r:RelatedTo {relation: $relation}]->(t)",
-                    {"source": source, "target": target, "relation": relation}
+                    {"source": source, "target": target, "relation": relation},
                 )
             except Exception as e:
                 logger.error(f"Error creating edge {source} -> {target}: {e}")
@@ -87,7 +92,7 @@ class GraphDB:
         else:
             query = "MATCH (e:Entity) RETURN e.name, e.label"
             params = {}
-        
+
         try:
             result = self.conn.execute(query, params)
             entities = []
@@ -121,7 +126,9 @@ class GraphDB:
             relations = []
             while result.has_next():
                 row = result.get_next()
-                relations.append({"source": row[0], "relation": row[1], "target": row[2]})
+                relations.append(
+                    {"source": row[0], "relation": row[1], "target": row[2]}
+                )
             return relations
         except Exception as e:
             logger.error(f"Error listing relations for {entity_name}: {e}")

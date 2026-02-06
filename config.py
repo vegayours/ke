@@ -5,6 +5,7 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
+
 # sample config is config.sample.toml
 class Config:
     def __init__(self, config_path: str):
@@ -54,4 +55,3 @@ class Config:
 
     def entity_extractor_model(self) -> str:
         return self.config.get("entity_extractor_model", "google/gemini-2.5-flash-lite")
-    

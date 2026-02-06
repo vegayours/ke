@@ -1,7 +1,7 @@
 import argparse
 import time
 from config import Config
-from document_db import DocumentDB, DocumentItem
+from document_db import DocumentDB
 from queues import UrlQueue, UrlItem
 from logger import get_logger, setup_logging
 from graph_db import GraphDB
@@ -9,6 +9,7 @@ from graph_db import GraphDB
 logger = get_logger(__name__)
 
 POLL_INTERVAL_SECONDS = 5
+
 
 def main():
     parser = argparse.ArgumentParser(description="Knowledge Engine")
@@ -18,34 +19,28 @@ def main():
         default="config.toml",
         help="Path to the config file (default: config.toml)",
     )
+    parser.add_argument("--url", "-u", help="URL to crawl")
     parser.add_argument(
-        '--url', '-u',
-        help="URL to crawl"
-    )
-    parser.add_argument(
-        '--ignore-cache', '-i',
+        "--ignore-cache",
+        "-i",
         default=False,
-        action='store_true',
-        help="Crawl ignoring cache"
+        action="store_true",
+        help="Crawl ignoring cache",
     )
 
+    parser.add_argument("--document", "-d", help="Document to show")
     parser.add_argument(
-        '--document', '-d',
-        help="Document to show"
-    )
-    parser.add_argument(
-        '--list-entities', '-le',
-        nargs='?',
+        "--list-entities",
+        "-le",
+        nargs="?",
         const=True,
-        help="List all entities (with optional label filter)"
+        help="List all entities (with optional label filter)",
     )
     parser.add_argument(
-        '--list-relations', '-lr',
-        help="List all relations for a given entity"
+        "--list-relations", "-lr", help="List all relations for a given entity"
     )
     parser.add_argument(
-        '--relation-type', '-rt',
-        help="Optional filter for --list-relations"
+        "--relation-type", "-rt", help="Optional filter for --list-relations"
     )
     args = parser.parse_args()
 
@@ -61,7 +56,6 @@ def main():
         url_queue.add(UrlItem(url=args.url, ignore_cache=args.ignore_cache))
         args.document = args.url
 
-    
     if args.document:
         logger.info(f"Showing document {args.document}")
         while True:
@@ -70,7 +64,9 @@ def main():
                 logger.info(f"Document: {doc_item.url}\nEntities: {doc_item.entities}")
                 break
             else:
-                logger.info(f"Document {args.document} not found or entities not extracted yet, will retry")
+                logger.info(
+                    f"Document {args.document} not found or entities not extracted yet, will retry"
+                )
             time.sleep(POLL_INTERVAL_SECONDS)
 
     if args.list_entities:
@@ -84,9 +80,12 @@ def main():
     if args.list_relations:
         graph_db = GraphDB(config, read_only=True)
         relations = graph_db.list_relations(args.list_relations, args.relation_type)
-        print(f"\nRelations for '{args.list_relations}' (filter: {args.relation_type}):")
+        print(
+            f"\nRelations for '{args.list_relations}' (filter: {args.relation_type}):"
+        )
         for rel in relations:
             print(f"- {rel['source']} --[{rel['relation']}]--> {rel['target']}")
+
 
 if __name__ == "__main__":
     main()

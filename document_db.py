@@ -1,7 +1,8 @@
 from diskcache import Index
 from config import Config
 from pathlib import Path
-from dataclasses import dataclass, asdict   
+from dataclasses import dataclass, asdict
+
 
 @dataclass
 class DocumentItem:
@@ -11,6 +12,7 @@ class DocumentItem:
 
     def __or__(self, other):
         return self.__class__(**asdict(self) | asdict(other))
+
 
 class DocumentDB:
     def __init__(self, config: Config):

@@ -1,6 +1,7 @@
 import logging
 import sys
 
+
 def setup_logging(level=logging.INFO):
     """
     Sets up the logging configuration.
@@ -8,10 +9,9 @@ def setup_logging(level=logging.INFO):
     logging.basicConfig(
         level=level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout)
-        ]
+        handlers=[logging.StreamHandler(sys.stdout)],
     )
+
 
 def get_logger(name):
     """

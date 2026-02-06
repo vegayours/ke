@@ -4,7 +4,8 @@ from config import Config
 from pathlib import Path
 from typing import Generic, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 class QueueBase(Generic[T]):
     def __init__(self, config: Config, name: str):
@@ -20,10 +21,12 @@ class QueueBase(Generic[T]):
         except IndexError:
             return None
 
+
 @dataclass
 class UrlItem:
     url: str
-    ignore_cache: bool = False 
+    ignore_cache: bool = False
+
 
 class UrlQueue(QueueBase[UrlItem]):
     def __init__(self, config: Config):
@@ -35,6 +38,7 @@ class ExtractEntitiesItem:
     url: str
     ignore_cache: bool = False
 
+
 class ExtractEntitiesQueue(QueueBase[ExtractEntitiesItem]):
     def __init__(self, config: Config):
         super().__init__(config, "extract_entities_queue")
@@ -44,7 +48,7 @@ class ExtractEntitiesQueue(QueueBase[ExtractEntitiesItem]):
 class UpdateGraphItem:
     url: str
 
+
 class UpdateGraphQueue(QueueBase[UpdateGraphItem]):
     def __init__(self, config: Config):
         super().__init__(config, "update_graph_queue")
-

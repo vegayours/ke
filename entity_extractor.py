@@ -28,6 +28,7 @@ CONSTRAINTS:
 
 """
 
+
 class EntityExtractor:
     def __init__(self, config: Config):
         self.config = config
@@ -44,13 +45,13 @@ class EntityExtractor:
                 temperature=0.0,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Extract entities from the following document:\n{doc_item.content}"}
-                ]
+                    {
+                        "role": "user",
+                        "content": f"Extract entities from the following document:\n{doc_item.content}",
+                    },
+                ],
             )
             content = str(response.choices[0].message.content)
-            content = content.removeprefix("```json").removesuffix('```')
+            content = content.removeprefix("```json").removesuffix("```")
 
             return json.loads(content)
-            
-        
-        
