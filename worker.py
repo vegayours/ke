@@ -1,6 +1,4 @@
 import asyncio
-import signal
-import argparse
 from crawl4ai import AsyncWebCrawler
 from config import Config
 from queues import (
@@ -12,7 +10,7 @@ from queues import (
     UpdateGraphItem,
 )
 from document_db import DocumentDB, DocumentItem
-from logger import get_logger, setup_logging
+from logger import get_logger
 from entity_extractor import EntityExtractor
 from graph_db import GraphDB
 from typing import Generic, TypeVar
@@ -137,13 +135,12 @@ class GraphWorker(WorkerBase[UpdateGraphQueue, UpdateGraphItem]):
         self.graph_db = GraphDB(config)
 
     async def process(self, item: UpdateGraphItem):
-        if not item.ignore_cache:
-            doc_item = self.document_db.get(item.url)
-            if not doc_item or not doc_item.entities:
-                self.logger.error(
-                    f"Document {item.url} not found or no entities found. Skipping."
-                )
-                return
+        doc_item = self.document_db.get(item.url)
+        if not doc_item or not doc_item.entities:
+            self.logger.error(
+                f"Document {item.url} not found or no entities found. Skipping."
+            )
+            return
 
         self.logger.info(f"Updating graph for document: {item.url}")
 
@@ -151,44 +148,11 @@ class GraphWorker(WorkerBase[UpdateGraphQueue, UpdateGraphItem]):
         self.logger.info(f"Successfully updated graph for: {item.url}")
 
 
-async def async_main(config_path: str):
-    setup_logging()
-    config = Config(config_path)
-    shutdown_event = asyncio.Event()
-
-    def handle_exit(signum, frame):
-        logger.info(f"Received signal {signum}. Triggering shutdown...")
-        shutdown_event.set()
-
-    # Register signals
-    signal.signal(signal.SIGINT, handle_exit)
-    signal.signal(signal.SIGTERM, handle_exit)
-
+async def worker_main(config: Config, shutdown_event: asyncio.Event):
     url_worker = UrlWorker(config, shutdown_event)
     entity_extractor_worker = EntityExtractorWorker(config, shutdown_event)
     graph_worker = GraphWorker(config, shutdown_event)
 
-    logger.info("Starting workers concurrently. Press Ctrl+C to stop.")
     await asyncio.gather(
         url_worker.start(), entity_extractor_worker.start(), graph_worker.start()
     )
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Knowledge Engine Worker")
-    parser.add_argument(
-        "--config",
-        "-c",
-        default="config.toml",
-        help="Path to the config file (default: config.toml)",
-    )
-    args = parser.parse_args()
-
-    try:
-        asyncio.run(async_main(args.config))
-    except KeyboardInterrupt:
-        pass
-
-
-if __name__ == "__main__":
-    main()

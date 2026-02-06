@@ -1,5 +1,7 @@
 import argparse
-import time
+import asyncio
+import signal
+from worker import worker_main
 from config import Config
 from document_db import DocumentDB
 from queues import UrlQueue, UrlItem
@@ -11,7 +13,46 @@ logger = get_logger(__name__)
 POLL_INTERVAL_SECONDS = 5
 
 
-def main():
+async def cli_main(args, config: Config, shutdown_event: asyncio.Event):
+    url_queue = UrlQueue(config)
+    document_db = DocumentDB(config)
+    graph_db = GraphDB(config, read_only=True)
+
+    if args.url:
+        logger.info(f"Crawling and processing {args.url}")
+        url_queue.add(UrlItem(url=args.url, ignore_cache=args.ignore_cache))
+        args.document = args.url
+
+    if args.document:
+        logger.info(f"Showing document {args.document}")
+        while True:
+            doc_item = document_db.get(args.document)
+            if doc_item and doc_item.entities:
+                logger.info(f"Document: {doc_item.url}\nEntities: {doc_item.entities}")
+                break
+            else:
+                logger.info(
+                    f"Document {args.document} not found or entities not extracted yet, will retry"
+                )
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+    if args.list_entities:
+        label = args.list_entities if isinstance(args.list_entities, str) else None
+        entities = graph_db.list_entities(label)
+        logger.info(f"\nEntities (filter: {label}):")
+        for ent in entities:
+            logger.info(f"- {ent['name']} ({ent['label']})")
+
+    if args.list_relations:
+        relations = graph_db.list_relations(args.list_relations, args.relation_type)
+        logger.info(
+            f"\nRelations for '{args.list_relations}' (filter: {args.relation_type}):"
+        )
+        for rel in relations:
+            logger.info(f"- {rel['source']} --[{rel['relation']}]--> {rel['target']}")
+
+
+def parse_args():
     parser = argparse.ArgumentParser(description="Knowledge Engine")
     parser.add_argument(
         "--config",
@@ -42,50 +83,29 @@ def main():
     parser.add_argument(
         "--relation-type", "-rt", help="Optional filter for --list-relations"
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    setup_logging()
-    config = Config(args.config)
-    url_queue = UrlQueue(config)
-    document_db = DocumentDB(config)
 
-    logger.info("Hello from knowledge engine!")
+async def async_main(args, config: Config):
+    shutdown_event = asyncio.Event()
 
-    if args.url:
-        logger.info(f"Crawling and processing {args.url}")
-        url_queue.add(UrlItem(url=args.url, ignore_cache=args.ignore_cache))
-        args.document = args.url
+    def handle_exit(signum, frame):
+        logger.info(f"Received signal {signum}. Triggering shutdown...")
+        shutdown_event.set()
 
-    if args.document:
-        logger.info(f"Showing document {args.document}")
-        while True:
-            doc_item = document_db.get(args.document)
-            if doc_item and doc_item.entities:
-                logger.info(f"Document: {doc_item.url}\nEntities: {doc_item.entities}")
-                break
-            else:
-                logger.info(
-                    f"Document {args.document} not found or entities not extracted yet, will retry"
-                )
-            time.sleep(POLL_INTERVAL_SECONDS)
+    # Register signals
+    signal.signal(signal.SIGINT, handle_exit)
+    signal.signal(signal.SIGTERM, handle_exit)
 
-    if args.list_entities:
-        graph_db = GraphDB(config, read_only=True)
-        label = args.list_entities if isinstance(args.list_entities, str) else None
-        entities = graph_db.list_entities(label)
-        print(f"\nEntities (filter: {label}):")
-        for ent in entities:
-            print(f"- {ent['name']} ({ent['label']})")
-
-    if args.list_relations:
-        graph_db = GraphDB(config, read_only=True)
-        relations = graph_db.list_relations(args.list_relations, args.relation_type)
-        print(
-            f"\nRelations for '{args.list_relations}' (filter: {args.relation_type}):"
-        )
-        for rel in relations:
-            print(f"- {rel['source']} --[{rel['relation']}]--> {rel['target']}")
+    logger.info("Starting workers concurrently. Press Ctrl+C to stop.")
+    await asyncio.gather(
+        worker_main(config, shutdown_event),
+        cli_main(args, config, shutdown_event),
+    )
 
 
 if __name__ == "__main__":
-    main()
+    setup_logging()
+    args = parse_args()
+    config = Config(args.config)
+    asyncio.run(async_main(args, config))
