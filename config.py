@@ -50,8 +50,8 @@ class Config:
     def graph_db_path(self) -> str:
         return self.config.get("graph_db_path", "graph_db")
 
-    def crawl_check_period_seconds(self) -> int:
-        return self.config.get("crawl_check_period_seconds", 10)
+    def queue_check_period_seconds(self) -> int:
+        return self.config.get("queue_check_period_seconds", 10)
 
     def entity_extractor_model(self) -> str:
         return self.config.get("entity_extractor_model", "google/gemini-2.5-flash-lite")

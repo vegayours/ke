@@ -5,6 +5,7 @@ from crawl4ai import AsyncWebCrawler
 from config import Config
 from queues import (
     UrlQueue,
+    UrlItem,
     ExtractEntitiesQueue,
     ExtractEntitiesItem,
     UpdateGraphQueue,
@@ -14,185 +15,140 @@ from document_db import DocumentDB, DocumentItem
 from logger import get_logger, setup_logging
 from entity_extractor import EntityExtractor
 from graph_db import GraphDB
+from typing import Generic, TypeVar
+
+QueueType = TypeVar("QueueType")
+QueueItemType = TypeVar("QueueItemType")
 
 logger = get_logger(__name__)
 RETRY_DELAY_SECONDS = 10
 
 
-class WorkerBase:
+class WorkerBase(Generic[QueueType, QueueItemType]):
     def __init__(
-        self,
-        name: str,
-        config: Config,
-        check_period_seconds: int,
-        shutdown_event: asyncio.Event,
+        self, name: str, config: Config, shutdown_event: asyncio.Event, queue: QueueType
     ):
         self.name = name
+        self.logger = get_logger(self.name)
         self.config = config
         self.document_db = DocumentDB(config)
-        self.check_period_seconds = check_period_seconds
         self.shutdown_event = shutdown_event
+        self.queue = queue
 
-    async def loop(self) -> bool:
+    async def process(self, item: QueueItemType):
         raise NotImplementedError
 
-    async def retry_after_delay(self, item, queue):
-        await asyncio.sleep(RETRY_DELAY_SECONDS)
-        queue.add(item)
-        logger.info(f"{self.name}: Item re-added to queue for retry.")
+    async def retry_after_delay(self, item: QueueItemType):
+        try:
+            await asyncio.sleep(RETRY_DELAY_SECONDS)
+            self.queue.add(item)
+            self.logger.info("Item re-added to queue for retry.")
+        except Exception as e:
+            self.logger.error(f"Error retrying item: {e}")
 
     async def start(self):
-        logger.info(f"{self.name} started.")
+        self.logger.info("Worker started.")
 
         while not self.shutdown_event.is_set():
-            processed = await self.loop()
+            item = self.queue.next()
 
-            if not processed:
+            if item:
+                try:
+                    await self.process(item)
+                except Exception as e:
+                    self.logger.error(f"Error processing item: {e}")
+                    asyncio.create_task(self.retry_after_delay(item))
+            else:
                 try:
                     await asyncio.wait_for(
-                        self.shutdown_event.wait(), timeout=self.check_period_seconds
+                        self.shutdown_event.wait(),
+                        timeout=self.config.queue_check_period_seconds(),
                     )
                 except asyncio.TimeoutError:
                     pass
 
-        logger.info(f"{self.name} stopped.")
+        logger.info("Worker stopped.")
 
 
-class UrlWorker(WorkerBase):
+class UrlWorker(WorkerBase[UrlQueue, UrlItem]):
     def __init__(self, config: Config, shutdown_event: asyncio.Event):
-        super().__init__(
-            "URL Worker", config, config.crawl_check_period_seconds(), shutdown_event
-        )
-        self.url_queue = UrlQueue(config)
+        super().__init__("URL Worker", config, shutdown_event, UrlQueue(config))
         self.entity_extractor_queue = ExtractEntitiesQueue(config)
 
-    async def loop(self) -> bool:
-        url_item = self.url_queue.next()
+    async def process(self, item: UrlItem):
+        if not item.ignore_cache:
+            doc_item = self.document_db.get(item.url)
+            if doc_item:
+                self.logger.info(f"URL {item.url} already processed. Skipping.")
+                if not doc_item.entities:
+                    self.entity_extractor_queue.add(ExtractEntitiesItem(url=item.url))
+                return
 
-        if url_item:
-            if not url_item.ignore_cache:
-                doc_item = self.document_db.get(url_item.url)
-                if doc_item:
-                    logger.info(f"URL {url_item.url} already processed. Skipping.")
-                    if not doc_item.entities:
-                        self.entity_extractor_queue.add(
-                            ExtractEntitiesItem(url=url_item.url)
-                        )
-                    return True
-
-            logger.info(f"Processing URL: {url_item.url}")
-            try:
-                async with AsyncWebCrawler() as crawler:
-                    result = await crawler.arun(url=url_item.url)
-                if result.success:
-                    doc_item = DocumentItem(
-                        url=url_item.url, content=str(result.markdown)
-                    )
-                    self.document_db.update(doc_item)
-                    self.entity_extractor_queue.add(
-                        ExtractEntitiesItem(url=url_item.url)
-                    )
-                    logger.info(f"Successfully processed and stored: {url_item.url}")
-                else:
-                    logger.error(
-                        f"Failed to crawl {url_item.url}: {result.error_message}"
-                    )
-                    asyncio.create_task(
-                        self.retry_after_delay(url_item, self.url_queue)
-                    )
-            except Exception as e:
-                logger.error(f"Error processing {url_item.url}: {e}")
-                asyncio.create_task(self.retry_after_delay(url_item, self.url_queue))
-            return True
-        else:
-            return False
+        self.logger.info(f"Processing URL: {item.url}")
+        async with AsyncWebCrawler() as crawler:
+            result = await crawler.arun(url=item.url)
+            if result.success:
+                doc_item = DocumentItem(url=item.url, content=str(result.markdown))
+                self.document_db.update(doc_item)
+                self.entity_extractor_queue.add(ExtractEntitiesItem(url=item.url))
+                logger.info(f"Successfully processed and stored: {item.url}")
+            else:
+                raise Exception(f"Failed to crawl {item.url}: {result.error_message}")
 
 
-class EntityExtractorWorker(WorkerBase):
+class EntityExtractorWorker(WorkerBase[ExtractEntitiesQueue, ExtractEntitiesItem]):
     def __init__(self, config: Config, shutdown_event: asyncio.Event):
         super().__init__(
             "Entity Extractor Worker",
             config,
-            config.crawl_check_period_seconds(),
             shutdown_event,
+            ExtractEntitiesQueue(config),
         )
-        self.extract_entities_queue = ExtractEntitiesQueue(config)
         self.entity_extractor = EntityExtractor(config)
         self.update_graph_queue = UpdateGraphQueue(config)
 
-    async def loop(self) -> bool:
-        extract_entities_item = self.extract_entities_queue.next()
-
-        if extract_entities_item:
-            doc_item = self.document_db.get(extract_entities_item.url)
-
+    async def process(self, item: ExtractEntitiesItem):
+        if not item.ignore_cache:
+            doc_item = self.document_db.get(item.url)
             if not doc_item:
-                logger.error(f"Document {extract_entities_item.url} not found.")
-                return True
+                self.logger.error(f"Document {item.url} not found. Skipping.")
+                return
 
-            if not extract_entities_item.ignore_cache:
+            if not item.ignore_cache:
                 if doc_item.entities:
-                    logger.info(
-                        f"Document {extract_entities_item.url} already processed. Skipping."
+                    self.logger.info(
+                        f"Document {item.url} already processed. Skipping."
                     )
-                    return True
+                    return
 
-            logger.info(
-                f"Extracting entities from document: {extract_entities_item.url}"
-            )
-
-            try:
-                entities = self.entity_extractor.extract_entities(doc_item)
-                doc_item.entities = entities
-                self.document_db.update(doc_item)
-                self.update_graph_queue.add(
-                    UpdateGraphItem(url=extract_entities_item.url)
-                )
-                logger.info(
-                    f"Successfully extracted entities from: {extract_entities_item.url}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error extracting entities from {extract_entities_item.url}: {e}"
-                )
-                asyncio.create_task(
-                    self.retry_after_delay(
-                        extract_entities_item, self.extract_entities_queue
-                    )
-                )
-            return True
-        else:
-            return False
+        self.logger.info(f"Extracting entities from document: {item.url}")
+        entities = self.entity_extractor.extract_entities(doc_item)
+        doc_item.entities = entities
+        self.document_db.update(doc_item)
+        self.update_graph_queue.add(UpdateGraphItem(url=item.url))
+        self.logger.info(f"Successfully extracted entities from: {item.url}")
 
 
-class GraphWorker(WorkerBase):
+class GraphWorker(WorkerBase[UpdateGraphQueue, UpdateGraphItem]):
     def __init__(self, config: Config, shutdown_event: asyncio.Event):
         super().__init__(
-            "Graph Worker", config, config.crawl_check_period_seconds(), shutdown_event
+            "Graph Worker", config, shutdown_event, UpdateGraphQueue(config)
         )
-        self.update_graph_queue = UpdateGraphQueue(config)
         self.graph_db = GraphDB(config)
 
-    async def loop(self) -> bool:
-        update_item = self.update_graph_queue.next()
-        if update_item:
-            doc_item = self.document_db.get(update_item.url)
+    async def process(self, item: UpdateGraphItem):
+        if not item.ignore_cache:
+            doc_item = self.document_db.get(item.url)
             if not doc_item or not doc_item.entities:
-                logger.error(f"No entities found for document {update_item.url}")
-                return True
-
-            logger.info(f"Updating graph for document: {update_item.url}")
-            try:
-                self.graph_db.update_graph(doc_item.entities)
-                logger.info(f"Successfully updated graph for: {update_item.url}")
-            except Exception as e:
-                logger.error(f"Error updating graph for {update_item.url}: {e}")
-                asyncio.create_task(
-                    self.retry_after_delay(update_item, self.update_graph_queue)
+                self.logger.error(
+                    f"Document {item.url} not found or no entities found. Skipping."
                 )
-            return True
-        else:
-            return False
+                return
+
+        self.logger.info(f"Updating graph for document: {item.url}")
+
+        self.graph_db.update_graph(doc_item.entities)
+        self.logger.info(f"Successfully updated graph for: {item.url}")
 
 
 async def async_main(config_path: str):
