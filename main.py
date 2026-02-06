@@ -29,7 +29,7 @@ async def cli_main(args, config: Config, shutdown_event: asyncio.Event):
         while not shutdown_event.is_set():
             doc_item = document_db.get(args.document)
             if doc_item and doc_item.entities:
-                logger.info(f"Document: {doc_item.url}\nEntities: {doc_item.entities}")
+                print(f"Document: {doc_item.url}\nEntities: {doc_item.entities}")
                 break
             else:
                 logger.info(
@@ -48,17 +48,17 @@ async def cli_main(args, config: Config, shutdown_event: asyncio.Event):
     if args.list_entities:
         label = args.list_entities if isinstance(args.list_entities, str) else None
         entities = graph_db.list_entities(label)
-        logger.info(f"\nEntities (filter: {label}):")
+        print(f"\nEntities (filter: {label}):")
         for ent in entities:
-            logger.info(f"- {ent['name']} ({ent['label']})")
+            print(f"- {ent['name']} ({ent['label']})")
 
     if args.list_relations:
         relations = graph_db.list_relations(args.list_relations, args.relation_type)
-        logger.info(
+        print(
             f"\nRelations for '{args.list_relations}' (filter: {args.relation_type}):"
         )
         for rel in relations:
-            logger.info(f"- {rel['source']} --[{rel['relation']}]--> {rel['target']}")
+            print(f"- {rel['source']} --[{rel['relation']}]--> {rel['target']}")
 
 
 def parse_args():
