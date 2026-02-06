@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os
 import signal
 from worker import worker_main
 from config import Config
@@ -25,7 +26,7 @@ async def cli_main(args, config: Config, shutdown_event: asyncio.Event):
 
     if args.document:
         logger.info(f"Showing document {args.document}")
-        while True:
+        while not shutdown_event.is_set():
             doc_item = document_db.get(args.document)
             if doc_item and doc_item.entities:
                 logger.info(f"Document: {doc_item.url}\nEntities: {doc_item.entities}")
@@ -34,7 +35,15 @@ async def cli_main(args, config: Config, shutdown_event: asyncio.Event):
                 logger.info(
                     f"Document {args.document} not found or entities not extracted yet, will retry"
                 )
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            try:
+                await asyncio.wait_for(
+                    shutdown_event.wait(), timeout=POLL_INTERVAL_SECONDS
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        if shutdown_event.is_set():
+            return
 
     if args.list_entities:
         label = args.list_entities if isinstance(args.list_entities, str) else None
@@ -89,13 +98,19 @@ def parse_args():
 async def async_main(args, config: Config):
     shutdown_event = asyncio.Event()
 
-    def handle_exit(signum, frame):
-        logger.info(f"Received signal {signum}. Triggering shutdown...")
-        shutdown_event.set()
+    loop = asyncio.get_running_loop()
 
-    # Register signals
-    signal.signal(signal.SIGINT, handle_exit)
-    signal.signal(signal.SIGTERM, handle_exit)
+    def request_shutdown(signum, frame=None):
+        logger.info(f"Received signal {signum}. Triggering shutdown...")
+        loop.call_soon_threadsafe(shutdown_event.set)
+
+    if os.name == "nt":
+        signal.signal(signal.SIGINT, request_shutdown)
+        if hasattr(signal, "SIGBREAK"):
+            signal.signal(signal.SIGBREAK, request_shutdown)
+    else:
+        loop.add_signal_handler(signal.SIGINT, request_shutdown, signal.SIGINT)
+        loop.add_signal_handler(signal.SIGTERM, request_shutdown, signal.SIGTERM)
 
     logger.info("Starting workers concurrently. Press Ctrl+C to stop.")
     await asyncio.gather(
